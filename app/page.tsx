@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../lib/supabaseClient";
 
 type Booking = {
   id: string;
@@ -9,6 +10,16 @@ type Booking = {
   date: string;
   startTime: string;
   endTime: string;
+};
+
+type SupabaseBookingRecord = {
+  id: string;
+  name: string;
+  meeting_title: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  created_at: string | null;
 };
 
 const initialBookings: Booking[] = [
@@ -49,6 +60,35 @@ export default function HomePage() {
     [formValues],
   );
 
+  useEffect(() => {
+    const loadBookings = async () => {
+      const { data, error } = await supabase
+        .from<SupabaseBookingRecord>("bookings")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Supabase fetch error:", error.message);
+        return;
+      }
+
+      if (data) {
+        setBookings(
+          data.map((record) => ({
+            id: record.id,
+            name: record.name,
+            meetingTitle: record.meeting_title,
+            date: record.date,
+            startTime: record.start_time,
+            endTime: record.end_time,
+          })),
+        );
+      }
+    };
+
+    loadBookings();
+  }, []);
+
   const handleChange = (field: keyof typeof formValues, value: string) => {
     setFormValues((current) => ({
       ...current,
@@ -56,31 +96,52 @@ export default function HomePage() {
     }));
   };
 
-  const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!hasFormFilled) {
       return;
     }
 
-    const newBooking: Booking = {
-      id: String(Date.now()),
+    const bookingPayload = {
       name: formValues.name.trim(),
-      meetingTitle: formValues.meetingTitle.trim(),
+      meeting_title: formValues.meetingTitle.trim(),
       date: formValues.date,
-      startTime: formValues.startTime,
-      endTime: formValues.endTime,
+      start_time: formValues.startTime,
+      end_time: formValues.endTime,
     };
 
-    setBookings((current) => [newBooking, ...current]);
-    setFormValues({
-      name: "",
-      meetingTitle: "",
-      date: "",
-      startTime: "",
-      endTime: "",
-    });
-    setActiveTab("Booked");
+    const { data, error } = await supabase
+      .from<SupabaseBookingRecord>("bookings")
+      .insert(bookingPayload)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Supabase insert error:", error.message);
+      return;
+    }
+
+    if (data) {
+      const newBooking: Booking = {
+        id: data.id,
+        name: data.name,
+        meetingTitle: data.meeting_title,
+        date: data.date,
+        startTime: data.start_time,
+        endTime: data.end_time,
+      };
+
+      setBookings((current) => [newBooking, ...current]);
+      setFormValues({
+        name: "",
+        meetingTitle: "",
+        date: "",
+        startTime: "",
+        endTime: "",
+      });
+      setActiveTab("Booked");
+    }
   };
 
   return (
