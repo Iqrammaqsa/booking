@@ -22,31 +22,12 @@ type SupabaseBookingRecord = {
   created_at: string | null;
 };
 
-const initialBookings: Booking[] = [
-  {
-    id: "1",
-    name: "Alex Morgan",
-    meetingTitle: "Design review",
-    date: "2026-06-10",
-    startTime: "10:00",
-    endTime: "11:00",
-  },
-  {
-    id: "2",
-    name: "Priya Singh",
-    meetingTitle: "Sprint planning",
-    date: "2026-06-11",
-    startTime: "14:00",
-    endTime: "15:00",
-  },
-];
-
 const tabLabels = ["Booking", "Booked"] as const;
 
 export default function HomePage() {
   const [activeTab, setActiveTab] =
     useState<(typeof tabLabels)[number]>("Booking");
-  const [bookings, setBookings] = useState<Booking[]>(initialBookings);
+  const [bookings, setBookings] = useState<Booking[]>([]);
   const [formValues, setFormValues] = useState({
     name: "",
     meetingTitle: "",
@@ -54,38 +35,48 @@ export default function HomePage() {
     startTime: "",
     endTime: "",
   });
+  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const hasFormFilled = useMemo(
     () => Object.values(formValues).every((value) => value.trim().length > 0),
     [formValues],
   );
 
+  const loadBookings = async () => {
+    setIsLoading(true);
+    setErrorMessage(null);
+
+    const { data, error } = await supabase
+      .from<SupabaseBookingRecord>("bookings")
+      .select("*")
+      .order("date", { ascending: true })
+      .order("start_time", { ascending: true });
+
+    setIsLoading(false);
+
+    if (error) {
+      console.error("Supabase fetch error:", error.message);
+      setErrorMessage("Unable to load bookings. Please try again.");
+      return;
+    }
+
+    if (data) {
+      setBookings(
+        data.map((record) => ({
+          id: record.id,
+          name: record.name,
+          meetingTitle: record.meeting_title,
+          date: record.date,
+          startTime: record.start_time,
+          endTime: record.end_time,
+        })),
+      );
+    }
+  };
+
   useEffect(() => {
-    const loadBookings = async () => {
-      const { data, error } = await supabase
-        .from<SupabaseBookingRecord>("bookings")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Supabase fetch error:", error.message);
-        return;
-      }
-
-      if (data) {
-        setBookings(
-          data.map((record) => ({
-            id: record.id,
-            name: record.name,
-            meetingTitle: record.meeting_title,
-            date: record.date,
-            startTime: record.start_time,
-            endTime: record.end_time,
-          })),
-        );
-      }
-    };
-
     loadBookings();
   }, []);
 
@@ -103,6 +94,9 @@ export default function HomePage() {
       return;
     }
 
+    setIsSubmitting(true);
+    setErrorMessage(null);
+
     const bookingPayload = {
       name: formValues.name.trim(),
       meeting_title: formValues.meetingTitle.trim(),
@@ -111,37 +105,27 @@ export default function HomePage() {
       end_time: formValues.endTime,
     };
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from<SupabaseBookingRecord>("bookings")
-      .insert(bookingPayload)
-      .select()
-      .single();
+      .insert(bookingPayload);
+
+    setIsSubmitting(false);
 
     if (error) {
       console.error("Supabase insert error:", error.message);
+      setErrorMessage("Unable to save booking. Please try again.");
       return;
     }
 
-    if (data) {
-      const newBooking: Booking = {
-        id: data.id,
-        name: data.name,
-        meetingTitle: data.meeting_title,
-        date: data.date,
-        startTime: data.start_time,
-        endTime: data.end_time,
-      };
-
-      setBookings((current) => [newBooking, ...current]);
-      setFormValues({
-        name: "",
-        meetingTitle: "",
-        date: "",
-        startTime: "",
-        endTime: "",
-      });
-      setActiveTab("Booked");
-    }
+    setFormValues({
+      name: "",
+      meetingTitle: "",
+      date: "",
+      startTime: "",
+      endTime: "",
+    });
+    setActiveTab("Booked");
+    await loadBookings();
   };
 
   return (
@@ -254,13 +238,18 @@ export default function HomePage() {
                 </label>
               </div>
 
-              <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
+              <div className="flex items-center justify-between gap-3 border-t border-slate-200 pt-4">
+                <span className="text-sm text-slate-500">
+                  {errorMessage
+                    ? "Something went wrong. Check your input and try again."
+                    : "Book a room and view it in the Booked tab."}
+                </span>
                 <button
                   type="submit"
                   className="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-6 py-3 text-sm font-semibold text-white transition hover:bg-slate-700 disabled:cursor-not-allowed disabled:bg-slate-400"
-                  disabled={!hasFormFilled}
+                  disabled={!hasFormFilled || isSubmitting}
                 >
-                  Add booking
+                  {isSubmitting ? "Saving..." : "Add booking"}
                 </button>
               </div>
             </form>
@@ -268,7 +257,15 @@ export default function HomePage() {
         ) : (
           <section>
             <div className="space-y-4">
-              {bookings.length === 0 ? (
+              {isLoading ? (
+                <div className="rounded-3xl border border-slate-200 bg-slate-50 p-8 text-center text-slate-600">
+                  Loading bookings...
+                </div>
+              ) : errorMessage ? (
+                <div className="rounded-3xl border border-red-200 bg-red-50 p-8 text-center text-red-700">
+                  {errorMessage}
+                </div>
+              ) : bookings.length === 0 ? (
                 <div className="rounded-3xl border border-dashed border-slate-300 bg-slate-50 p-8 text-center text-slate-600">
                   No bookings yet. Add one from the Booking tab.
                 </div>
